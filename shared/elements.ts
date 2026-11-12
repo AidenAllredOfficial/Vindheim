@@ -171,6 +171,8 @@ export interface ElementDef {
   tags: string[];
   /** 1 (straightforward) .. 3 (demanding). */
   difficulty: 1 | 2 | 3;
+  /** Knockback taken multiplier (default 1). Heavy fighters are hard to throw around. */
+  kbTaken?: number;
   /** Glory needed to unlock (0 = starter). */
   cost: number;
   /** The rune carved on the pedestal (Elder Futhark). */
@@ -201,10 +203,10 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
         ai: { use: 'melee', min: 0, max: 3.1 },
       },
       {
-        key: 'fireball', name: 'Fireball', slot: 1, cooldown: 1.0, windup: 0.16, active: 0, recovery: 0.2, moveMul: 0.75, air: true, anim: 'throw',
+        key: 'fireball', name: 'Fireball', slot: 1, cooldown: 1.1, windup: 0.16, active: 0, recovery: 0.2, moveMul: 0.75, air: true, anim: 'throw',
         desc: 'Hurl a ball of fire that bursts on impact and ignites everything nearby.',
         tip: 'Aim at their feet. The splash still burns when the ball misses.',
-        fx: { t: 'proj', ent: 'fireball', speed: 36, radius: 0.45, life: 1.5, hit: { dmg: 13, kb: 7, lift: 3, status: [burn(2.5)] }, explode: { r: 2.4, hit: { dmg: 7, kb: 5, lift: 2.5, status: [burn(2)] } } },
+        fx: { t: 'proj', ent: 'fireball', speed: 36, radius: 0.45, life: 1.5, hit: { dmg: 12, kb: 7, lift: 3, status: [burn(2.5)] }, explode: { r: 2.4, hit: { dmg: 7, kb: 5, lift: 2.5, status: [burn(2)] } } },
         ai: { use: 'poke', min: 4, max: 34, lead: 36 },
       },
       {
@@ -327,15 +329,15 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
   stone: {
     id: 'stone', name: 'Stone', title: 'Bones of Ymir',
     lore: 'The island is the bone of a dead giant, and bone remembers. Stone-wardens ask it, politely, to stand up.',
-    style: 'Slow, heavy and terrifying up close. Reshape the arena with walls and send foes flying with every hit.',
-    tags: ['Bruiser', 'Terrain', 'Launcher'], difficulty: 2, cost: 800, rune: 'ᚢ',
+    style: 'Slow, heavy and terrifying up close. Reshape the arena with walls, send foes flying with every hit — and being stone, you are a quarter harder to knock around than anyone else.',
+    tags: ['Bruiser', 'Terrain', 'Launcher'], difficulty: 2, cost: 800, rune: 'ᚢ', kbTaken: 0.75,
     color: 0xc9a36b, core: 0xfff0c8, dark: 0x4a3a28,
     abilities: [
       {
         key: 'stone_melee', name: 'Hammerfall', slot: 0, cooldown: 0.65, windup: 0.36, active: 0.1, recovery: 0.4, moveMul: 0.4, air: true, armor: true, anim: 'overhead',
         desc: 'A slow, unstoppable overhead blow that launches foes skyward — light hits will not interrupt it. Strike your own Rampart to shatter it into a hail of rock.',
         tip: 'It is slow. Swing where they will be, not where they are.',
-        fx: { t: 'melee', range: 3.2, arc: 105, lunge: 6.5, hit: { dmg: 19, kb: 8, lift: 11.5, heavy: true } },
+        fx: { t: 'melee', range: 3.2, arc: 105, lunge: 6.5, hit: { dmg: 22, kb: 8, lift: 11.5, heavy: true } },
         ai: { use: 'melee', min: 0, max: 3.2 },
       },
       {
@@ -356,8 +358,8 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
         key: 'earthshatter', name: 'Earthshatter', slot: 3, cooldown: 9, windup: 0.5, active: 0.1, recovery: 0.45, moveMul: 0.2, air: false, armor: true, anim: 'slam',
         desc: 'Slam the ground and send a shockwave outward, launching every foe standing on the earth. Airborne foes are untouched. The wind-up cannot be interrupted by light hits.',
         tip: 'They will try to jump it. Delay, and catch the landing.',
-        fx: { t: 'burst', ent: 'earthshatter', radius: 7, groundedOnly: true, hit: { dmg: 22, kb: 6, lift: 14, heavy: true } },
-        ai: { use: 'burst', min: 0, max: 6 },
+        fx: { t: 'burst', ent: 'earthshatter', radius: 7, groundedOnly: true, hit: { dmg: 24, kb: 6, lift: 14, heavy: true } },
+        ai: { use: 'burst', min: 0, max: 4.6 },
       },
       {
         key: 'seismicleap', name: 'Seismic Leap', slot: 4, cooldown: 7, windup: 0.12, active: 0, recovery: 0.2, moveMul: 0, air: false, anim: 'leap',
@@ -381,7 +383,7 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
         key: 'gale_melee', name: 'Tempest Kick', slot: 0, cooldown: 0.5, windup: 0.22, active: 0.1, recovery: 0.3, moveMul: 0.5, air: true, anim: 'kick',
         desc: 'A wind-wreathed kick. Little damage, but it sends foes flying a very long way.',
         tip: 'Always know which way the edge is.',
-        fx: { t: 'melee', range: 2.7, arc: 100, lunge: 7, hit: { dmg: 8, kb: 17, lift: 6.5, heavy: true } },
+        fx: { t: 'melee', range: 2.7, arc: 100, lunge: 7.5, hit: { dmg: 10, kb: 17, lift: 6.5, heavy: true } },
         ai: { use: 'melee', min: 0, max: 3.0 },
       },
       {
@@ -473,7 +475,7 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
         key: 'umbra_melee', name: 'Dusk Fang', slot: 0, cooldown: 0.45, windup: 0.22, active: 0.08, recovery: 0.28, moveMul: 0.5, air: true, anim: 'stab',
         desc: 'A quick, short stab. Strikes from behind or from Shadowmeld deal heavy bonus damage and knock the victim down.',
         tip: 'Never fight face to face. Find their back.',
-        fx: { t: 'melee', range: 2.6, arc: 90, lunge: 7, backstab: 1.9, hit: { dmg: 10, kb: 8, lift: 4 } },
+        fx: { t: 'melee', range: 2.6, arc: 90, lunge: 7, backstab: 1.9, hit: { dmg: 12, kb: 8, lift: 4 } },
         ai: { use: 'melee', min: 0, max: 2.9 },
       },
       {
@@ -525,8 +527,8 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
       {
         key: 'glint', name: 'Glint', slot: 1, cooldown: 1.05, windup: 0.14, active: 0, recovery: 0.2, moveMul: 0.75, air: true, anim: 'cast',
         desc: 'Fire a needle of light, the fastest projectile there is. It strikes far harder at long range.',
-        tip: 'Beyond twenty paces it hits like a hammer. Keep your distance.',
-        fx: { t: 'proj', ent: 'glint', speed: 85, radius: 0.28, life: 0.75, hit: { dmg: 11, kb: 5, lift: 2 }, farBonus: { dist: 22, mul: 1.6 } },
+        tip: 'Beyond twenty-four metres it hits like a hammer. Keep your distance.',
+        fx: { t: 'proj', ent: 'glint', speed: 85, radius: 0.28, life: 0.75, hit: { dmg: 11, kb: 5, lift: 2 }, farBonus: { dist: 24, mul: 1.45 } },
         ai: { use: 'poke', min: 6, max: 60, lead: 85 },
       },
       {

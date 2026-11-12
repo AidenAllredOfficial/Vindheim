@@ -38,6 +38,8 @@ const out = args[1] || '/tmp/shot.png';
 const opt = Object.fromEntries(args.slice(2).map((a) => { const m = a.match(/^--([^=]+)(?:=(.*))?$/s); return m ? [m[1], m[2] ?? '1'] : [a, '1']; }));
 const w = +(opt.w || 1280), h = +(opt.h || 720), wait = +(opt.wait || 3000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// .jpg / .jpeg outputs are written as JPEG (quality 90), everything else as PNG
+const shotOpts = (path) => (/\.jpe?g$/i.test(path) ? { path, type: 'jpeg', quality: 90 } : { path });
 
 if (!url) { console.error('usage: node tools/shot.mjs <url> <out.png> [--w= --h= --wait= --eval=]'); process.exit(2); }
 
@@ -72,12 +74,12 @@ try {
       const m = s.match(/^sleep:(\d+)$/);
       if (m) { await sleep(+m[1]); continue; }
       const sm = s.match(/^shot:(.+)$/);
-      if (sm) { await page.screenshot({ path: sm[1] }); continue; }
+      if (sm) { await page.screenshot(shotOpts(sm[1])); continue; }
       try { const r = await page.evaluate(s); if (r !== undefined) logs.push('[eval] ' + JSON.stringify(r)); }
       catch (e) { logs.push('[eval-error] ' + e.message); }
     }
   }
-  await page.screenshot({ path: out });
+  await page.screenshot(shotOpts(out));
   console.log(logs.slice(-(+(opt.logs || 40))).join('\n'));
   console.log('saved', out);
 } finally {

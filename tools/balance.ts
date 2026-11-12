@@ -7,6 +7,7 @@ const matches = Number(process.argv[2] || 12);
 const skill = Number(process.argv[3] || 0.7);
 const stat = ELEMENT_ORDER.map(() => ({ k: 0, d: 0, dmg: 0, falls: 0, wins: 0, ring: 0 }));
 const byKey: Record<string, { hits: number; dmg: number; kills: number }> = {};
+const casts: Record<string, number> = {};
 let totalFalls = 0, totalDeaths = 0, selfFalls = 0;
 const t0 = performance.now();
 for (let m = 0; m < matches; m++) {
@@ -15,6 +16,7 @@ for (let m = 0; m < matches; m++) {
   for (let i = 0; i < 60 * 312; i++) {
     g.step();
     for (const ev of g.events) {
+      if (ev.e === 'spawn' || ev.e === 'fx') { casts[ev.k] = (casts[ev.k] || 0) + 1; }
       if (ev.e === 'hit') {
         const s = (byKey[ev.k] ||= { hits: 0, dmg: 0, kills: 0 });
         s.hits++; s.dmg += ev.dmg; if (ev.kill) s.kills++;
@@ -41,4 +43,5 @@ ELEMENT_ORDER.forEach((el, i) => {
 });
 const keys = Object.entries(byKey).sort((a, b) => b[1].dmg - a[1].dmg);
 console.log('\nability            hits/m   dmg/m  kills/m');
+console.log('casts/m: ' + Object.entries(casts).sort((a, b) => b[1] - a[1]).map(([k, n]) => k + ' ' + (n / matches).toFixed(1)).join(', '));
 for (const [k, s] of keys) console.log(`${k.padEnd(16)} ${(s.hits / matches).toFixed(1).padStart(8)} ${(s.dmg / matches).toFixed(0).padStart(7)} ${(s.kills / matches).toFixed(1).padStart(7)}`);

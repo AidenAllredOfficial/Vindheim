@@ -46,6 +46,8 @@ export class BotBrain {
   private hallGoal: Vec3 | null = null; private hallWait = 1;
   private castAim: Vec3 | null = null; private castAimT = 0;
   private pendingSlot = -1; private pendingT = 0;
+  /** An ability the bot has decided on and is still lining up. */
+  private intent: { slot: number; aim: Vec3; tol: number; until: number } | null = null;
   private fleeing = false;
   private roam: Vec3 | null = null;
   private hazardX = 0; private hazardZ = 0; private hazard = false;
@@ -451,6 +453,22 @@ export class BotBrain {
       if (this.pendingT <= 0) { const slot = this.pendingSlot; this.pendingSlot = -1; if (canUse(s, slot)) this.press(inp, slot); }
       return;
     }
+    if (this.intent) {
+      // keep turning onto the chosen aim point; fire the moment it lines up
+      const it = this.intent;
+      if (this.time > it.until || !canUse(s, it.slot)) this.intent = null;
+      else {
+        this.castAim = it.aim; this.castAimT = 0.2;
+        if (this.aimError(s, it.aim.x, it.aim.y, it.aim.z) <= it.tol) {
+          this.intent = null;
+          const ab = abilityOf(s, it.slot);
+          this.castAim = it.aim; this.castAimT = ab.windup + 0.12;
+          this.press(inp, it.slot);
+          this.useT[it.slot] = ab.cooldown * (0.1 + (1 - this.skill) * 0.5 * this.rng.next()) + 0.2 * this.rng.next();
+        }
+        return;
+      }
+    }
     const dx = t.x - s.x, dy = t.y - s.y, dz = t.z - s.z;
     const d = Math.hypot(dx, dz);
     const hasLos = d < 60 && world.los({ x: s.x, y: s.y + CHEST_HEIGHT, z: s.z }, { x: t.x, y: t.y + CHEST_HEIGHT, z: t.z });
@@ -509,14 +527,34 @@ export class BotBrain {
           go = this.fleeing && d < 12 && this.rng.chance(0.5);
           aim = { x: t.x, y: t.y + CHEST_HEIGHT, z: t.z }; tol = 0.4;
           break;
-        case 'escape': go = this.useMovement(s, t, d, hasLos, tv); aim = go ? { x: t.x, y: t.y + CHEST_HEIGHT, z: t.z } : null; tol = 0.35; break;
+        case 'escape': {
+          go = this.useMovement(s, t, d, hasLos, tv);
+          if (!go) break;
+          tol = 0.35;
+          if (ab.fx.t === 'leap') {
+            // a leap's range is set by how high you look: pick the pitch that lands on the target
+            const lx = t.x + t.vx * 0.5, lz = t.z + t.vz * 0.5;
+            const ld = Math.hypot(lx - s.x, lz - s.z);
+            // never leap at someone standing on the brink: the overshoot is a long way down
+            const ox = (lx - s.x) / (ld || 1), oz = (lz - s.z) / (ld || 1);
+            if (world.ground(lx + ox * 3.5, lz + oz * 3.5, t.y + 2).y <= VOID || world.ground(lx, lz, t.y + 2).y <= VOID) { go = false; break; }
+            const pitch = clamp((ld - 10.6) * 0.082, -0.5, 0.4);
+            aim = { x: lx, y: s.y + CHEST_HEIGHT + 0.15 + Math.tan(pitch) * ld, z: lz };
+            tol = 0.12;
+          } else aim = { x: t.x, y: t.y + CHEST_HEIGHT, z: t.z };
+          break;
+        }
         default: break;
       }
       if (!go) { this.useT[slot] = 0.15 + this.rng.next() * 0.25; continue; }
       if (aim) {
         // hold the aim through the wind-up
         this.castAim = aim; this.castAimT = ab.windup + 0.12;
-        if (this.aimError(s, aim.x, aim.y, aim.z) > tol) { this.castAimT = 0.25; continue; }
+        if (this.aimError(s, aim.x, aim.y, aim.z) > tol) {
+          // not lined up yet: commit to it for a moment rather than re-deciding every tick
+          this.intent = { slot, aim, tol, until: this.time + 0.45 + (1 - this.skill) * 0.3 };
+          return;
+        }
       }
       // humans do not act on the first possible frame
       this.pendingSlot = slot;
@@ -565,7 +603,7 @@ export class BotBrain {
     const bold = this.aggression > 0.45;
     if (this.fleeing) return d < 8 && el !== 'stone' && el !== 'frost' ? this.rng.chance(0.08) : false;
     switch (el) {
-      case 'stone': return los && d > 6 && d < 17 && t.onGround && bold && this.rng.chance(0.15);
+      case 'stone': return los && d > 5 && d < 16 && t.onGround && this.rng.chance(0.3);
       case 'ember': return los && d > 6 && d < 12 && bold && s.cd[2] <= 0.3 && this.rng.chance(0.06);
       case 'frost': return d > 17 && this.rng.chance(0.05);
       case 'storm': return los && d > 18 && this.rng.chance(0.04);

@@ -33,6 +33,7 @@ export class GameCamera {
   private goalQuat = new THREE.Quaternion();
   private dummy = new THREE.Object3D();
   private deathAngle = 0;
+  private deathH = 3.4;
   private inspectPos = new THREE.Vector3();
   private inspectLook = new THREE.Vector3();
   private time = 0;
@@ -98,12 +99,18 @@ export class GameCamera {
       this.goalFromLook(px - d.x * this.dist, py - d.y * this.dist, pz - d.z * this.dist, px + d.x * 40, py + d.y * 40, pz + d.z * 40);
     } else if (this.mode === 'death') {
       this.deathAngle += dt * 0.35;
-      const r = 6.5, h = 3.4;
+      const r = 6.5;
+      let h = 3.4;
       let cx = fx + Math.cos(this.deathAngle) * r, cz = fz + Math.sin(this.deathAngle) * r;
       const base = Math.max(fy, -6);
       const hit = world.raycast(fx, base + 1.6, fz, (cx - fx) / r, 0.3, (cz - fz) / r, r, 0.3);
-      if (hit) { const k = Math.max(0.25, (hit.t - 0.3) / r); cx = fx + (cx - fx) * k; cz = fz + (cz - fz) * k; }
-      this.goalFromLook(cx, base + h, cz, fx, base + 1.0, fz);
+      if (hit) {
+        // something is in the way: come in closer and rise above it instead of staring at a rock
+        const k = Math.max(0.25, (hit.t - 0.6) / r);
+        cx = fx + (cx - fx) * k; cz = fz + (cz - fz) * k; h += (1 - k) * 4.5;
+      }
+      this.deathH += (h - this.deathH) * Math.min(1, dt * 4);
+      this.goalFromLook(cx, base + this.deathH, cz, fx, base + 1.0, fz);
     } else if (this.mode === 'inspect') {
       this.goalFromLook(this.inspectPos.x, this.inspectPos.y, this.inspectPos.z, this.inspectLook.x, this.inspectLook.y, this.inspectLook.z);
     } else {

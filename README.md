@@ -9,7 +9,17 @@ take up one of eight elemental disciplines, step through the Skygate and fight a
 **nothing can be blocked** — every clean hit staggers, launches or knocks down, and the abyss is
 always one mistake away.
 
-<!-- SCREENSHOTS -->
+![Title screen: the Vindheim wordmark over a fly-over of the sky islands](docs/screenshots/title.jpg)
+
+| | |
+|---|---|
+| ![Frost fighter casting glacial spikes under the aurora, the Hearth-Hall floating above](docs/screenshots/arena-frost.jpg) | ![Ember fighter throwing a fireball through the ruined temple](docs/screenshots/arena-ember.jpg) |
+| ![The firelit Hearth-Hall with other warriors gathered round the long fire](docs/screenshots/hall.jpg) | ![The pedestal gallery: studying the Stone element and its abilities](docs/screenshots/gallery.jpg) |
+| ![Hurled into the sky by a cyclone, looking down at the island rim and the cloud sea](docs/screenshots/arena-cyclone.jpg) | ![Match results with podium, standings and glory earned](docs/screenshots/results.jpg) |
+
+![Six abilities tried on the training thralls in the sparring ring: Meteor, Rampart, Tidal Wave, Thunderstrike, Cyclone, Shadow Snare](docs/screenshots/abilities.jpg)
+
+<p align="center"><img src="docs/screenshots/mobile.jpg" width="720" alt="Phone layout with touch controls: virtual stick, ability cluster with cooldowns"><br><em>The same game on a phone, with touch controls.</em></p>
 
 ## Features
 
@@ -35,7 +45,7 @@ always one mistake away.
   scales from a phone to 4K, onboarding hints, and accessibility options (reduce flashes, reduce
   motion, screen-shake scale, colour-blind-safe cues, high contrast, interface scale, rebindable keys).
 - **No downloads, no asset files** — every model, texture, effect, sound and note of the adaptive
-  score is generated in code. The whole game is a few hundred kilobytes of JavaScript.
+  score is generated in code. The whole game is under half a megabyte of gzipped JavaScript.
 - **Plays offline too** — if no server can be reached the same simulation runs in the page, so the
   static build alone is a complete single-player practice game against bots.
 

@@ -110,6 +110,8 @@ export class App {
   private hintUntil = 0;
   private movedDist = 0;
   private firstJoin = true;
+  private rejoining = false;
+  private resultsRound = -1;
 
   constructor(private canvas: HTMLCanvasElement, private uiRoot: HTMLElement, private mods: Modules) {
     this.hooks = {
@@ -266,11 +268,13 @@ export class App {
         // came back after a dropped connection: return to the room we were in
         if (this.wantRoom && !this.inRoom) {
           const again = this.room && this.room.isPrivate ? { type: 'join' as const, code: this.room.code } : this.wantRoom;
+          this.rejoining = true;
           this.net.send({ t: 'join', mode: again.type, code: again.type === 'join' ? again.code : undefined, bots: again.type === 'create' ? again.bots : undefined });
         }
         break;
       case 'profile': this.setProfile(m.profile); break;
       case 'joined': {
+        this.rejoining = false;
         this.clearRoom();
         this.state.reset(m.you);
         this.inRoom = true;
@@ -278,8 +282,9 @@ export class App {
         this.ui.setRoom(m.room);
         this.applyRoster(m.roster, true);
         for (const e of m.ents) this.spawnEntity(e, 0);
+        this.resultsRound = -1;
         this.setMatch(m.match);
-        this.ui.showResults(m.results);
+        if (m.results) { this.resultsRound = m.match.round; this.ui.showResults(m.results); }
         this.input.yaw = 0; this.input.pitch = -0.05;
         this.input.enabled = true;
         this.cam.setMode('follow');
@@ -312,12 +317,22 @@ export class App {
       case 'match':
         if (!this.inRoom) return;
         this.setMatch(m.match);
-        this.ui.showResults(m.match.phase === 'results' ? m.results : null);
+        // show the results once per round (the server repeats them; the player may have dismissed them)
+        if (m.match.phase === 'results' && m.results && this.resultsRound !== m.match.round) { this.resultsRound = m.match.round; this.ui.showResults(m.results); }
         break;
       case 'err':
-        this.ui.toast(m.msg, 'bad');
+        this.ui.toast(this.rejoining ? 'Your room closed while you were away.' : m.msg, 'bad');
         this.audio.ui('denied');
-        if (m.code === 'room-not-found' || m.code === 'room-full') { this.wantRoom = null; this.input.unlock(); }
+        if (m.code === 'room-not-found' || m.code === 'room-full') {
+          if (this.rejoining) {
+            // the room did not survive the outage: open a fresh one of the same kind, or go home
+            this.rejoining = false;
+            const w = this.wantRoom;
+            if (w && w.type !== 'join') { this.net.send({ t: 'join', mode: w.type, bots: w.type === 'create' ? w.bots : undefined }); break; }
+            this.wantRoom = null;
+            this.toTitle();
+          } else { this.wantRoom = null; this.input.unlock(); }
+        }
         break;
     }
   }
@@ -854,7 +869,7 @@ export class App {
   private updateLocal(dt: number) {
     const st = this.state, me = st.me;
     this.combat = Math.max(0, this.combat - dt * 0.07);
-    if (!me.alive) { this.respawnIn = Math.max(0, this.respawnIn - dt); return; }
+    if (!me.alive) { this.respawnIn = Math.max(0, this.respawnIn - dt); this.post.setDanger(0); this.post.setFrost(0); return; }
     // hold to return to the hall
     if (!me.hall && this.input.isDown('hall') && !this.ui.isBlocking()) {
       this.recall += dt / 1.6;

@@ -583,7 +583,7 @@ export class Game {
     if (t.freeze > 0 || t.bubble > 0) { t.act = -1; t.mv = MV_NONE; }
 
     // ---- knockback & reaction
-    const kbScale = 1 + KB_HP_SCALE * (1 - t.hp / MAX_HP);
+    const kbScale = (1 + KB_HP_SCALE * (1 - t.hp / MAX_HP)) * (ELEMENT_LIST[t.el]?.kbTaken ?? 1);
     let ky = 0;
     if (!dot && t.freeze <= 0 && t.bubble <= 0) {
       const kb = spec.kb * kbScale;
