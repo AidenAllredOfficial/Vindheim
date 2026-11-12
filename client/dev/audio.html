@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vindheim — audio harness</title>
+    <style>
+      html, body { margin: 0; background: #070b14; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #cfe0ff; }
+      body { padding: 10px 12px 40px; }
+      h1 { font: 600 15px/1.2 system-ui, sans-serif; margin: 0 0 6px; color: #e8c36a; letter-spacing: 0.04em; }
+      h2 { font: 600 12px/1.2 system-ui, sans-serif; margin: 14px 0 5px; color: #e8c36a; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid #2a3550; padding-bottom: 3px; }
+      button { font: inherit; color: #dfe9ff; background: #18223a; border: 1px solid #33456e; border-radius: 3px; padding: 2px 7px; margin: 1px; cursor: pointer; }
+      button:hover { background: #24345a; }
+      button.go { background: #7a5a12; border-color: #e8c36a; color: #fff; font-weight: 600; padding: 5px 14px; }
+      label { margin-right: 10px; white-space: nowrap; }
+      input[type=range] { width: 120px; vertical-align: middle; }
+      select { font: inherit; background: #18223a; color: #dfe9ff; border: 1px solid #33456e; }
+      .row { margin: 2px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 1px; }
+      .tag { display: inline-block; min-width: 108px; color: #8fa3c8; }
+      .el { display: inline-block; min-width: 62px; font-weight: 600; }
+      #status { white-space: pre; color: #9fd3a0; margin: 4px 0; }
+      #scope { display: block; background: #0d1420; border: 1px solid #2a3550; margin: 4px 0; }
+      #log { white-space: pre-wrap; margin: 6px 0; }
+      #sheet { display: block; margin: 6px 0; }
+      table { border-collapse: collapse; }
+      td, th { padding: 0 7px; text-align: right; white-space: nowrap; }
+      td:first-child, th:first-child { text-align: left; }
+      tr.fail td { color: #ff7a6a; }
+      th { color: #e8c36a; font-weight: 600; border-bottom: 1px solid #2a3550; }
+      .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 0 24px; }
+    </style>
+  </head>
+  <body>
+    <h1>Vindheim — audio harness</h1>
+    <div id="app"></div>
+    <script type="module" src="/dev/audio.ts"></script>
+  </body>
+</html>

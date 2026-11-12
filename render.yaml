@@ -1,0 +1,16 @@
+# Example deployment to Render (Blueprint): a single Docker web service with a small disk.
+services:
+  - type: web
+    name: vindheim
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: PORT
+        value: "8787"
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: vindheim-data
+      mountPath: /data
+      sizeGB: 1
