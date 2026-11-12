@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vindheim — effects harness</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #070b14; overflow: hidden; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #cfe0ff; }
+      #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #sheet { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
+      #hud { position: fixed; left: 8px; top: 6px; white-space: pre; text-shadow: 0 1px 2px #000; pointer-events: none; }
+      #help { position: fixed; right: 8px; bottom: 6px; white-space: pre; text-align: right; opacity: 0.6; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <canvas id="sheet"></canvas>
+    <div id="hud"></div>
+    <div id="help">?k=&lt;kind&gt; · ?el=&lt;element&gt;[&amp;slot=0..4] · ?status=&lt;name&gt; · ?event=hit|death|respawn|tp|pickup|pop|foot
+&amp;t=&lt;s&gt; freeze · &amp;sheet=t1,t2,.. contact sheet · &amp;q=low|medium|high|ultra · &amp;surface=grass|snow|ice|rock
+&amp;cam=third|side|top|far|front|close · &amp;why=0..4 · &amp;dist=&lt;m&gt; · &amp;all=1 stress</div>
+    <script type="module" src="/dev/vfx.ts"></script>
+  </body>
+</html>
