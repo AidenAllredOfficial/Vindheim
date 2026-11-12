@@ -321,6 +321,15 @@ export class App {
         if (m.match.phase === 'results' && m.results && this.resultsRound !== m.match.round) { this.resultsRound = m.match.round; this.ui.showResults(m.results); }
         break;
       case 'err':
+        if (m.code === 'replaced') {
+          // this identity is now playing in another tab: stand down instead of fighting over it
+          this.wantRoom = null;
+          this.net.stop();
+          if (this.inRoom) this.toTitle();
+          this.ui.setConnection('offline', 'open in another tab — reload to play here');
+          this.ui.toast(m.msg, 'bad');
+          break;
+        }
         this.ui.toast(this.rejoining ? 'Your room closed while you were away.' : m.msg, 'bad');
         this.audio.ui('denied');
         if (m.code === 'room-not-found' || m.code === 'room-full') {
@@ -356,6 +365,7 @@ export class App {
   private setMatch(m: MatchInfo) {
     const prev = this.match.phase;
     this.match = m; this.matchAt = performance.now() / 1000;
+    this.state.setGateSealed(m.phase !== 'live');
     this.ui.setMatch(m);
     if (prev !== m.phase && m.phase === 'intermission') this.ui.showResults(null);
   }

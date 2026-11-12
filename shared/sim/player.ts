@@ -36,6 +36,25 @@ const PITCH_LIMIT = 1.45;
 /** How long a button press is remembered while the fighter is busy. */
 const BUFFER_TIME = 0.22;
 
+/** Every numeric field of PlayerState, in wire order (see net/protocol.ts). */
+export const STATE_FIELDS = [
+  'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'face', 'hp', 'el', 'act', 'actT', 'actYaw', 'actPitch', 'actN',
+  'stun', 'down', 'inv', 'sinceJump', 'coyote', 'pb', 'mv', 'mvT', 'mvX', 'mvY', 'mvZ',
+  'burn', 'chill', 'chillT', 'freeze', 'freezeImm', 'shock', 'root', 'slow', 'slowMul', 'bubble', 'stealth', 'haste', 'hasteMul',
+  'buf', 'bufT', 'jbuf',
+] as const;
+
+/**
+ * Snap the state to the 1e-4 grid it is transmitted on. Running this after every step on both
+ * sides means a client replaying inputs from a snapshot reproduces the server's arithmetic
+ * exactly, instead of drifting by rounding error until a timer lands on the other side of a tick.
+ */
+export function quantizePlayer(p: PlayerState): void {
+  const s = p as unknown as Record<string, number>;
+  for (let i = 0; i < STATE_FIELDS.length; i++) { const k = STATE_FIELDS[i]; s[k] = Math.round(s[k] * 1e4) / 1e4; }
+  for (let i = 0; i < 5; i++) p.cd[i] = Math.round(p.cd[i] * 1e4) / 1e4;
+}
+
 export function createPlayerState(id: number): PlayerState {
   return {
     id, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, face: 0, onGround: false, ice: false,
@@ -167,6 +186,11 @@ function startMovement(p: PlayerState, ab: AbilityDef, inp: Input, world: World)
  */
 export function stepPlayer(p: PlayerState, inp: Input, world: World, dt: number, hooks: StepHooks = NO_HOOKS): void {
   if (!p.alive) { p.pb = inp.b; return; }
+  stepBody(p, inp, world, dt, hooks);
+  quantizePlayer(p);
+}
+
+function stepBody(p: PlayerState, inp: Input, world: World, dt: number, hooks: StepHooks): void {
 
   // ------------------------------------------------------------------ timers
   for (let i = 0; i < 5; i++) if (p.cd[i] > 0) p.cd[i] = Math.max(0, p.cd[i] - dt);

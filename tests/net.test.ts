@@ -15,6 +15,9 @@ class MemStore implements ProfileStore {
   newToken() { return (++this.n).toString(16).padStart(32, '0'); }
 }
 
+/** Let simulated time pass (joins are rate-limited, emptied rooms linger for a few seconds). */
+function wait(lobby: Lobby, seconds: number) { for (let i = 0; i < Math.round(seconds * 60); i++) lobby.tick(); }
+
 function client(lobby: Lobby) {
   const inbox: ServerMsg[] = [];
   const conn: Conn = { send: (m) => inbox.push(JSON.parse(JSON.stringify(m))) };
@@ -98,11 +101,24 @@ describe('lobby', () => {
     expect(jc.room.isPrivate).toBe(true); expect(jc.room.code).toHaveLength(5);
     expect(jc.roster.filter((r) => r.bot).length).toBe(0);
     b.send({ t: 'join', mode: 'join', code: jc.room.code.toLowerCase() });
+    expect(b.last('err')!.code).toBe('rate'); // too soon after the last join
+    wait(lobby, 1);
+    b.send({ t: 'join', mode: 'join', code: jc.room.code.toLowerCase() });
     expect(b.last('joined')!.room.code).toBe(jc.room.code);
+    wait(lobby, 1);
     b.send({ t: 'join', mode: 'join', code: 'ZZZZZ' });
     expect(b.last('err')!.code).toBe('room-not-found');
     expect(lobby.stats().rooms).toBe(2);
     c.send({ t: 'leave' }); lobby.disconnect(b.conn);
+    // the emptied private room lingers so a dropped player can come back to it …
+    wait(lobby, 5);
+    expect(lobby.stats().rooms).toBe(2);
+    const d = client(lobby);
+    d.send({ t: 'hello', v: PROTOCOL_VERSION }); d.send({ t: 'join', mode: 'join', code: jc.room.code });
+    expect(d.last('joined')!.room.code).toBe(jc.room.code);
+    lobby.disconnect(d.conn);
+    // … and is closed once nobody does
+    wait(lobby, 13);
     expect(lobby.stats().rooms).toBe(1);
   });
 
@@ -144,9 +160,10 @@ describe('lobby', () => {
     a.send({ t: 'cmd', c: 'equip', v: 'storm' });                // not owned
     for (let i = 0; i < 70; i++) lobby.tick();
     expect(a.last('profile')?.profile.owned ?? ['ember']).toEqual(['ember']);
-    // grant glory the way the game would
     lobby.disconnect(a.conn);
-    const prof = store.load(token)!; prof.glory = cost + 30; store.save(token, prof);
+    expect(store.load(token)).toBeNull();                        // an identity with no progress is not stored
+    // a returning player who has earned some glory
+    const prof = newProfile('Rich'); prof.glory = cost + 30; store.save(token, prof);
     const b = client(lobby);
     b.send({ t: 'hello', v: PROTOCOL_VERSION, token });
     expect(b.last('welcome')!.profile.glory).toBe(cost + 30);
@@ -162,6 +179,23 @@ describe('lobby', () => {
     lobby.disconnect(b.conn);
     const saved = store.load(token)!;
     expect(saved.owned).toEqual(['ember', 'frost']); expect(saved.glory).toBe(30); expect(saved.equipped).toBe('ember'); expect(saved.name).toBe('New Name');
+  });
+
+  it('ignores repeated hellos and tells a replaced tab to stand down', () => {
+    const store = new MemStore(), lobby = new Lobby(store);
+    const a = client(lobby);
+    for (let i = 0; i < 50; i++) a.send({ t: 'hello', v: PROTOCOL_VERSION });
+    expect(a.inbox.filter((m) => m.t === 'welcome').length).toBe(1);
+    expect(store.data.size).toBe(0);
+    const token = a.last('welcome')!.token;
+    a.send({ t: 'join', mode: 'create', bots: false });
+    const code = a.last('joined')!.room.code;
+    const b = client(lobby); // the same identity in a second tab, following its own invite link
+    b.send({ t: 'hello', v: PROTOCOL_VERSION, token });
+    expect(a.last('err')!.code).toBe('replaced');
+    expect(a.last('left')).toBeDefined();
+    b.send({ t: 'join', mode: 'join', code });
+    expect(b.last('joined')!.room.code).toBe(code); // the room survived the hand-over
   });
 
   it('relays chat with rate limiting', () => {

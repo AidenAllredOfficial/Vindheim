@@ -135,6 +135,14 @@ export class Net {
     else this.raw(msg);
   }
 
+  /** Stop for good (this identity moved to another tab): no reconnecting. */
+  stop(): void {
+    this.closed = true;
+    clearInterval(this.pingTimer);
+    this.ws?.close();
+    this.ws = null;
+  }
+
   /** Estimated server wall-clock time in seconds (drives the shared weather). */
   serverNow(): number { return Date.now() / 1000 + this.clockOffset; }
 }

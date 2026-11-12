@@ -344,7 +344,8 @@ describe('match loop', () => {
     const res = game.resultsFor(a)!;
     expect(res.standings[0].id).toBe(a.s.id);
     expect(res.you!.place).toBe(1);
-    expect(glory.get(a.s.id)).toBeGreaterThan(glory.get(b.s.id)!);
+    expect(glory.get(a.s.id)).toBeGreaterThan(0);
+    expect(glory.get(b.s.id) || 0).toBe(0); // b never landed a hit: no participation pay
     while (game.match.phase === 'results') game.step();
     expect(game.match.phase).toBe('intermission');
     expect(a.s.hall && b.s.hall).toBe(true);

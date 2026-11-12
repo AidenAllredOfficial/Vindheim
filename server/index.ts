@@ -73,7 +73,12 @@ function handleHttp(req: IncomingMessage, res: ServerResponse) {
   res.end(existsSync(CLIENT_DIR) ? 'Not found' : 'Client build not found. Run "npm run build" first (or use "npm run dev").');
 }
 
-const server = createServer(handleHttp);
+const server = createServer((req, res) => {
+  // a malformed request line must never take the process (and every room with it) down
+  try { handleHttp(req, res); }
+  catch { try { if (!res.headersSent) res.writeHead(400, { 'Content-Type': 'text/plain' }); res.end('Bad request'); } catch { /* socket already gone */ } }
+});
+server.on('clientError', (_err, socket) => { try { socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch { /* gone */ } });
 
 // ------------------------------------------------------------------------------ websockets
 const wss = new WebSocketServer({
@@ -81,7 +86,17 @@ const wss = new WebSocketServer({
   perMessageDeflate: { threshold: 256, zlibDeflateOptions: { level: 3 }, concurrencyLimit: 8 },
 });
 
-wss.on('connection', (ws: WebSocket) => {
+const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS || 2000);
+const MAX_PER_ADDRESS = Number(process.env.MAX_PER_ADDRESS || 16);
+const perAddress = new Map<string, number>();
+
+wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+  // behind a proxy the first forwarded address is the client
+  const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const addr = fwd || req.socket.remoteAddress || 'unknown';
+  const mine = (perAddress.get(addr) || 0) + 1;
+  if (wss.clients.size > MAX_CONNECTIONS || mine > MAX_PER_ADDRESS) { ws.close(1013, 'busy'); return; }
+  perAddress.set(addr, mine);
   const conn: Conn = {
     send(msg: ServerMsg) {
       if (ws.readyState !== ws.OPEN) return;
@@ -105,7 +120,15 @@ wss.on('connection', (ws: WebSocket) => {
     alive = false;
     try { ws.ping(); } catch { /* closing */ }
   }, 15000);
-  const end = () => { clearInterval(beat); lobby.disconnect(conn); };
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    clearInterval(beat);
+    const left = (perAddress.get(addr) || 1) - 1;
+    if (left <= 0) perAddress.delete(addr); else perAddress.set(addr, left);
+    lobby.disconnect(conn);
+  };
   ws.on('close', end);
   ws.on('error', end);
 });
@@ -147,5 +170,8 @@ function shutdown() {
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1500).unref();
 }
+// last line of defence: log and keep the rooms alive rather than dropping every player
+process.on('uncaughtException', (err) => console.error('[vindheim] uncaught exception', err));
+process.on('unhandledRejection', (err) => console.error('[vindheim] unhandled rejection', err));
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

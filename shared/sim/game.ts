@@ -69,6 +69,8 @@ export interface Fighter {
   home: SpawnPoint | null;
   regenT: number;
   joinedTick: number;
+  /** Input jitter-buffer bookkeeping: smallest backlog seen this window, window ticks, extra steps owed. */
+  qMin: number; qWin: number; extra: number;
 }
 
 export interface GameCallbacks {
@@ -87,6 +89,8 @@ export interface GameOptions {
 }
 
 const HIST = 32;
+/** Lag compensation never rewinds further than this many ticks (0.2 s), whatever a client claims its ping is. */
+const MAX_REWIND = 12;
 const tmpA: Vec3 = { x: 0, y: 0, z: 0 };
 const tmpB: Vec3 = { x: 0, y: 0, z: 0 };
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -117,6 +121,9 @@ export class Game {
   private cur: Fighter | null = null;
   private hooks: StepHooks;
   private announced = { minute: false, ten: false };
+  private gate: Collider;
+  /** How many fighters actually took part in the last match (placement needs opposition). */
+  private lastField = 0;
 
   constructor(readonly opts: GameOptions, readonly cb: GameCallbacks = {}) {
     this.rng = new Rng(opts.seed || 1);
@@ -125,6 +132,8 @@ export class Game {
       onRelease: (p, slot, ab, n) => this.onRelease(this.cur!, slot, ab, n),
       onMoveEnd: (p, mode, landed) => this.onMoveEnd(this.cur!, mode, landed),
     };
+    this.gate = this.world.gateBarrier();
+    this.rebuildDyn();
     for (const spot of this.world.dummySpots) {
       const f = this.addFighter('Training Thrall', false, 0, true);
       f.home = spot;
@@ -143,7 +152,7 @@ export class Game {
       kills: 0, deaths: 0, streak: 0, bestStreak: 0, dmg: 0, lastHitBy: 0, lastHitT: -99, lastHitKey: '', lastCombatT: -99,
       lastKillT: -99, multi: 0, respawnT: 0, wantHall: false, hist: new Float32Array(HIST * 3), ping: 0,
       gloryAcc: 0, matchGlory: 0, burnAcc: 0, burnSrc: 0, ambush: false, tpFrom: null, rayFrom: null, surgeHit: null,
-      trailX: 0, trailZ: 0, home: null, regenT: 0, joinedTick: this.tick,
+      trailX: 0, trailZ: 0, home: null, regenT: 0, joinedTick: this.tick, qMin: 99, qWin: 0, extra: 0,
     };
     if (bot) f.brain = new BotBrain(this.rng.int(1, 1e9), botSkill ?? this.rng.range(0.35, 0.92));
     this.fighters.set(id, f);
@@ -261,6 +270,7 @@ export class Game {
 
   private spawnInArena(f: Fighter, drop: boolean): void {
     const fromX = f.s.x, fromY = f.s.y, fromZ = f.s.z;
+    if (drop) for (const e of this.ents.values()) if (e.o === f.s.id && e.cls !== 'pickup') this.despawn(e, 0);
     this.resetState(f);
     f.trial = -1;
     f.s.el = f.equipped;
@@ -365,8 +375,17 @@ export class Game {
         stepPlayer(s, f.input, this.world, DT, this.hooks);
         this.afterStep(f);
       } else {
-        // consume one input per tick; catch up when the queue backs up, coast when it is empty
-        let n = f.queue.length > 4 ? 2 : 1;
+        // One simulation step per tick, however many inputs arrive: nobody runs faster by sending
+        // more. The queue is a small jitter buffer; a hopeless backlog is skipped, and a backlog
+        // that persists for half a second is drained at a bounded rate (at most 2 extra steps per
+        // 30 ticks) so a network hiccup does not turn into permanent input lag.
+        if (f.queue.length > 10) {
+          let held = 0;
+          while (f.queue.length > 4) { const d = f.queue.shift()!; held |= d.b; f.ack = d.seq; }
+          f.queue[0].b |= held;
+        }
+        let n = 1;
+        if (f.extra > 0 && f.queue.length > 1) { n = 2; f.extra--; }
         if (f.queue.length === 0) { n = 0; stepPlayer(s, f.input, this.world, DT, this.hooks); this.afterStep(f); }
         while (n-- > 0 && f.queue.length && s.alive) {
           const inp = f.queue.shift()!;
@@ -374,6 +393,8 @@ export class Game {
           stepPlayer(s, inp, this.world, DT, this.hooks);
           this.afterStep(f);
         }
+        if (f.queue.length < f.qMin) f.qMin = f.queue.length;
+        if (++f.qWin >= 30) { f.extra = f.qMin >= 2 ? Math.min(2, f.qMin - 1) : 0; f.qMin = 99; f.qWin = 0; }
       }
     }
     this.cur = null;
@@ -424,7 +445,7 @@ export class Game {
   /** Position of `target` as `viewer` saw it when they acted (lag compensation for instant hits). */
   private seenPos(target: Fighter, viewer: Fighter | null, out: Vec3): Vec3 {
     let back = 0;
-    if (viewer && !viewer.bot && viewer !== target) back = clamp(Math.round((viewer.ping / 1000 + 0.07) * 60), 0, HIST - 2);
+    if (viewer && !viewer.bot && viewer !== target) back = clamp(Math.round((viewer.ping / 1000 + 0.07) * 60), 0, MAX_REWIND);
     if (back === 0) { out.x = target.s.x; out.y = target.s.y; out.z = target.s.z; return out; }
     const i = (((this.tick - back) % HIST) + HIST) % HIST * 3;
     out.x = target.hist[i]; out.y = target.hist[i + 1]; out.z = target.hist[i + 2];
@@ -445,8 +466,6 @@ export class Game {
 
   private afterStep(f: Fighter) {
     const s = f.s;
-    const wasHall = s.hall;
-    s.hall = this.world.inHallZone(s.z);
     this.recordHist(f);
 
     if (f.tpFrom) {
@@ -458,22 +477,20 @@ export class Game {
     if (s.hall) {
       const g = HALL.gate;
       const inGate = Math.abs(s.x - g.x) < g.halfWidth && Math.abs(s.z - g.z) < 0.9 && s.y < HALL.terrace.y + 4;
-      if (s.y < HALL_DROP_Y || inGate) {
-        if (this.match.phase === 'live') this.spawnInArena(f, true);
-        else if (s.y < HALL_DROP_Y) this.spawnInHall(f);
-        else {
-          // sealed gate: nudge back
-          s.z = g.z - 1.0; s.vz = -4;
-          if (this.tick % 45 === 0) this.note(f, this.match.phase === 'results' ? 'The Skygate is sealed until the next match.' : `The Skygate opens in ${Math.ceil(this.match.timeLeft)}s.`);
-        }
-        return;
+      // (membership of the hall never flips just because a body flew across a line on the map:
+      // leaving the hall island, by falling or by any movement ability, is the leap of faith)
+      const left = s.y < HALL_DROP_Y || !this.world.inHallZone(s.z);
+      if (left || inGate) {
+        if (this.match.phase === 'live') { this.spawnInArena(f, true); return; }
+        if (left) { this.spawnInHall(f); return; }
+        // pressing against the sealed gate (a collider holds it shut)
+        if (this.tick % 45 === 0) this.note(f, this.match.phase === 'results' ? 'The Skygate is sealed until the next match.' : `The Skygate opens in ${Math.ceil(this.match.timeLeft)}s.`);
       }
     } else if (s.y < ARENA_KILL_Y) {
       const credit = this.time - f.lastHitT < KILL_CREDIT_WINDOW ? this.fighters.get(f.lastHitBy) || null : null;
       this.kill(f, credit, credit ? f.lastHitKey : 'fall', true);
       return;
     }
-    if (wasHall !== s.hall) this.rosterDirty = true;
 
     this.burnTick(f);
 
@@ -966,7 +983,7 @@ export class Game {
     const cyaw = -yaw; // collider local x runs across the caster's view
     const e = this.spawn(fx.ent, 'wall', f, ab, cx, gy, cz, 0, 0, 0, cyaw, fx.thick / 2, fx.life, 0, fx.width, fx.height);
     e.col = this.world.makeDynamicBox('rampart', 100000 + e.id, cx, cz, fx.width / 2, fx.thick / 2, cyaw, gy - 1.5, gy + fx.height);
-    this.world.dyn = [...this.world.dyn, e.col];
+    this.rebuildDyn();
     // anyone standing where the rock comes up goes with it
     for (const o of this.fighters.values()) {
       if (!o.s.alive) continue;
@@ -981,6 +998,14 @@ export class Game {
   }
 
   // ============================================================================ entities
+
+  /** Dynamic colliders = every standing rampart, plus the barrier across the Skygate between matches. */
+  private rebuildDyn() {
+    const dyn: Collider[] = [];
+    for (const e of this.ents.values()) if (e.col && !e.dead) dyn.push(e.col);
+    if (this.match.phase !== 'live') dyn.push(this.gate);
+    this.world.dyn = dyn;
+  }
 
   private entState(e: Ent): EntityState {
     return { id: e.id, k: e.k, o: e.o, el: e.el, x: r2(e.x), y: r2(e.y), z: r2(e.z), vx: r3(e.vx), vy: r3(e.vy), vz: r3(e.vz), yaw: r3(e.yaw), r: e.r, life: r2(e.life), age: r2(e.age), g: e.g, p: e.p, q: e.q };
@@ -1008,7 +1033,7 @@ export class Game {
     if (e.dead) return;
     e.dead = true;
     this.ents.delete(e.id);
-    if (e.col) { const col = e.col; this.world.dyn = this.world.dyn.filter((c) => c !== col); e.col = null; }
+    if (e.col) { e.col = null; this.rebuildDyn(); }
     if (e.cls === 'pickup') this.pickupActive.delete(e.n);
     this.events.push({ e: 'despawn', id: e.id, x: r2(e.x), y: r2(e.y), z: r2(e.z), why });
   }
@@ -1404,6 +1429,7 @@ export class Game {
       f.kills = 0; f.deaths = 0; f.streak = 0; f.bestStreak = 0; f.dmg = 0; f.matchGlory = 0; f.multi = 0;
       if (f.brain) f.brain.deployIn = this.rng.range(0.6, 7);
     }
+    this.rebuildDyn();
     this.announce('matchstart', 0, this.match.killTarget);
     this.matchDirty = true; this.rosterDirty = true;
   }
@@ -1417,28 +1443,39 @@ export class Game {
       standings: standings.map((f) => ({ id: f.s.id, name: f.name, bot: f.bot, el: f.equipped, kills: f.kills, deaths: f.deaths, dmg: Math.round(f.dmg) })),
       you: null,
     };
+    this.lastField = standings.filter((f) => f.kills + f.deaths > 0 || f.dmg > 0).length;
     standings.forEach((f, i) => {
       if (f.bot) return;
-      const played = f.kills + f.deaths > 0 || f.dmg > 0;
-      if (!played) return;
-      const bonus = (i < 3 ? GLORY_PLACEMENT[i] : 0) + GLORY_PARTICIPATION;
-      this.award(f, bonus, i < 3 ? 'place' : 'match');
+      if (!(f.kills + f.deaths > 0 || f.dmg > 0)) return;
+      const bonus = this.matchBonus(f, i);
+      if (bonus > 0) this.award(f, bonus, i < 3 ? 'place' : 'match');
       this.cb.onStat?.(f, 'matches', 1);
       this.cb.onStat?.(f, 'matchKills', f.kills);
-      if (i === 0) this.cb.onStat?.(f, 'wins', 1);
-      if (i < 3) this.cb.onStat?.(f, 'podiums', 1);
+      if (bonus > 0 && i === 0) this.cb.onStat?.(f, 'wins', 1);
+      if (bonus > 0 && i < 3) this.cb.onStat?.(f, 'podiums', 1);
     });
     this.lastResults = results;
     this.match = { phase: 'results', timeLeft: RESULTS_TIME, killTarget: MATCH_KILL_TARGET, round: this.match.round };
     this.announce('matchend', standings[0] ? standings[0].s.id : 0);
     for (const e of [...this.ents.values()]) this.despawn(e, 0);
+    this.rebuildDyn();
     this.cb.onMatchEnd?.(results, standings);
     this.matchDirty = true; this.rosterDirty = true;
+  }
+
+  /**
+   * End-of-match glory for the fighter in standings position `place` (0-based). Nothing is paid
+   * without opposition (an empty private room) or without having landed a single hit.
+   */
+  private matchBonus(f: Fighter, place: number): number {
+    if (this.lastField < 2 || !(f.kills > 0 || f.dmg > 0)) return 0;
+    return (place < 3 ? GLORY_PLACEMENT[place] : 0) + GLORY_PARTICIPATION;
   }
 
   private startIntermission() {
     this.match = { phase: 'intermission', timeLeft: INTERMISSION_TIME, killTarget: MATCH_KILL_TARGET, round: this.match.round + 1 };
     for (const e of [...this.ents.values()]) this.despawn(e, 0);
+    this.rebuildDyn();
     for (const f of this.fighters.values()) {
       if (f.dummy) continue;
       f.kills = 0; f.deaths = 0; f.streak = 0; f.dmg = 0;
@@ -1455,8 +1492,7 @@ export class Game {
     if (!r) return null;
     const place = r.standings.findIndex((s) => s.id === f.s.id);
     if (place < 0) return { ...r, you: null };
-    const played = f.kills + f.deaths > 0 || f.dmg > 0;
-    const bonus = played ? (place < 3 ? GLORY_PLACEMENT[place] : 0) + GLORY_PARTICIPATION : 0;
+    const bonus = this.matchBonus(f, place);
     return { ...r, you: { place: place + 1, glory: f.matchGlory, bonus, kills: f.kills, deaths: f.deaths, dmg: Math.round(f.dmg), bestStreak: f.bestStreak } };
   }
 }

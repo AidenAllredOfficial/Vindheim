@@ -498,6 +498,12 @@ export class World {
     return c;
   }
 
+  /** The barrier that seals the Skygate between matches (a dynamic collider both sides add). */
+  gateBarrier(): Collider {
+    const g = HALL.gate;
+    return { id: 99999, shape: 'box', kind: 'gatepost', x: g.x, z: g.z, hx: g.halfWidth + 0.2, hz: 0.35, yaw: 0, y0: HALL.terrace.y - 1.5, y1: HALL.terrace.y + 9, surf: 'stone', seed: 1 };
+  }
+
   /** Dynamic collider factory used by the simulation (not registered in the static grid). */
   makeDynamicBox(kind: ColliderKind, id: number, x: number, z: number, hx: number, hz: number, yaw: number, y0: number, y1: number): Collider {
     return { id, shape: 'box', kind, x, z, hx, hz, yaw, y0, y1, surf: 'rock', seed: id * 7919 };

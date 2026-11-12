@@ -142,9 +142,11 @@ tools/            balance harness, headless screenshot helper
 
 **Netcode.** The server simulates every room at 60 Hz and sends snapshots at 30 Hz. The client
 predicts its own fighter with the very same `stepPlayer` function and reconciles by replaying
-unacknowledged inputs; other fighters are interpolated ~100 ms in the past; projectiles and zones
-are replicated as spawn/despawn events and simulated locally in between. Instant attacks are
-lag-compensated against a short position history. Bots are ordinary fighters whose input is
+unacknowledged inputs (fighter state is snapped to a fixed grid after every step on both sides, so
+the replay is bit-exact); other fighters are interpolated ~100 ms in the past; projectiles and zones
+are replicated as spawn/despawn events and simulated locally in between. The server takes exactly
+one step per fighter per tick behind a small jitter buffer, so sending inputs faster gains nothing,
+and instant attacks are lag-compensated against a short, capped position history. Bots are ordinary fighters whose input is
 written by a brain instead of a socket, so they obey exactly the same rules as people.
 
 More detail, including the art direction and the entity catalogue, in [`docs/DESIGN.md`](docs/DESIGN.md).
@@ -152,7 +154,7 @@ More detail, including the art direction and the entity catalogue, in [`docs/DES
 ## Testing
 
 ```bash
-npm test             # vitest: world, physics, combat rules, protocol, lobby, prediction, bots
+npm test             # vitest: world, physics, combat rules, protocol, lobby, prediction, bots, regressions
 npm run typecheck
 npx tsx tools/balance.ts 12 0.7   # bot-vs-bot balance report (12 matches, skill 0.7)
 ```
@@ -177,6 +179,7 @@ docker run -p 8787:8787 -v vindheim-data:/app/data vindheim
 | `HOST` | `0.0.0.0` | interface to bind |
 | `DATA_DIR` | `./data` | where `profiles.json` is kept — mount a volume here |
 | `CLIENT_DIR` | `./dist/client` | built client to serve |
+| `MAX_CONNECTIONS` / `MAX_PER_ADDRESS` | `2000` / `16` | connection caps (total, and per client address) |
 | `VITE_SERVER_URL` | same origin `/ws` | build-time: point the client at a server on another host (`wss://…/ws`) |
 
 Example configs are included for Fly.io ([`fly.toml`](fly.toml)) and Render ([`render.yaml`](render.yaml)).

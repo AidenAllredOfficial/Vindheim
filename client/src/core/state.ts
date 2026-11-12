@@ -104,6 +104,7 @@ export class ClientState {
   private timeOffset = -1e9;
   private gotFirst = false;
   private myDeadSince = -1;
+  private gateSealed = false;
 
   reset(myId: number): void {
     this.myId = myId;
@@ -113,7 +114,7 @@ export class ClientState {
     this.myView.isLocal = true;
     this.remotes.clear(); this.roster.clear(); this.ents.clear(); this.endedLocally.clear();
     this.pending.length = 0; this.errX = this.errY = this.errZ = 0;
-    this.timeOffset = -1e9; this.gotFirst = false; this.world.dyn = [];
+    this.timeOffset = -1e9; this.gotFirst = false; this.gateSealed = false; this.world.dyn = [];
     this.myDeadSince = -1;
   }
 
@@ -242,8 +243,16 @@ export class ClientState {
     return e;
   }
 
+  /** The Skygate is barred between matches; prediction must know, or it walks through and snaps back. */
+  setGateSealed(sealed: boolean): void {
+    if (sealed === this.gateSealed) return;
+    this.gateSealed = sealed;
+    this.syncWalls();
+  }
+
   private syncWalls() {
     const dyn = [];
+    if (this.gateSealed) dyn.push(this.world.gateBarrier());
     for (const e of this.ents.values()) {
       if (e.k !== 'rampart') continue;
       dyn.push(this.world.makeDynamicBox('rampart', 100000 + e.id, e.x, e.z, e.p / 2, e.r, e.yaw, e.y - 1.5, e.y + e.q));

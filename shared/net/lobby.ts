@@ -8,6 +8,7 @@ import {
   type Input, type Profile, type ProfileStats, type RoomInfo,
 } from '../types';
 import { Game, type Fighter } from '../sim/game';
+import { quantizePlayer } from '../sim/player';
 import {
   CODE_ALPHABET, CODE_LENGTH, PROTOCOL_VERSION, encodeRemote, encodeSelf, normalizeCode,
   type ClientMsg, type ServerMsg,
@@ -89,7 +90,10 @@ class Session {
   profileDirty = false;
   chatTimes: number[] = [];
   msgCount = 0;
-  msgWindow = 0;
+  /** Lobby tick of the last room join (joins are rate-limited: creating a room is not free). */
+  lastJoin = -1000;
+  /** A brand-new identity is only written to disk once it has something worth keeping. */
+  fresh = false;
   constructor(readonly conn: Conn) {}
 }
 
@@ -180,6 +184,8 @@ class Room {
       for (const [id, arr] of remotes) if (id !== s.fighterId) others.push(arr);
       const priv = g.privateEvents.get(s.fighterId);
       const ev = priv && priv.length ? (shared.length ? shared.concat(priv) : priv) : shared;
+      // snap the authoritative state to the wire grid so client and server continue from identical numbers
+      quantizePlayer(f.s);
       const msg: ServerMsg = { t: 's', k: g.tick, a: f.ack, me: encodeSelf(f.s), p: others };
       if (ev.length) msg.e = ev;
       s.conn.send(msg);
@@ -208,6 +214,9 @@ class Room {
 
 export interface LobbyStats { rooms: number; humans: number; bots: number; ticks: number }
 
+/** Hard cap on simultaneous rooms (each one costs simulation time). */
+const MAX_ROOMS = 300;
+
 export class Lobby {
   private sessions = new Map<Conn, Session>();
   private rooms = new Map<string, Room>();
@@ -225,13 +234,21 @@ export class Lobby {
     this.sessions.delete(conn);
   }
 
-  private persist(s: Session) { if (s.profile && s.token) this.store.save(s.token, s.profile); }
+  private persist(s: Session) {
+    const p = s.profile;
+    if (!p || !s.token) return;
+    // an identity that has done nothing yet is not worth a row (and cannot be used to bloat the store)
+    if (s.fresh && p.glory === 0 && p.stats.playSeconds < 20 && p.stats.damage === 0) return;
+    s.fresh = false;
+    this.store.save(s.token, p);
+  }
 
   private leaveRoom(s: Session) {
     const room = s.room;
     if (!room) return;
     room.leave(s);
-    if (room.sessions.size === 0) this.rooms.delete(room.code);
+    // an emptied room lingers briefly (see tick) so a dropped connection or a second tab can return to it
+    room.emptyFor = 0;
   }
 
   private newCode(): string {
@@ -251,13 +268,21 @@ export class Lobby {
 
     switch (msg.t) {
       case 'hello': {
+        if (s.profile) return; // one identity per connection
         if (msg.v !== PROTOCOL_VERSION) { conn.send({ t: 'err', code: 'version', msg: 'This page is out of date. Please reload.' }); return; }
         let profile: Profile | null = null;
         let token = typeof msg.token === 'string' && /^[a-f0-9]{32,64}$/.test(msg.token) ? msg.token : '';
         if (token) profile = sanitizeProfile(this.store.load(token));
-        // one live session per identity: a second tab takes over
-        if (profile) for (const o of this.sessions.values()) if (o !== s && o.token === token) { profile = o.profile; if (o.room) this.leaveRoom(o); o.profile = null; o.token = ''; }
-        if (!profile) { token = this.store.newToken(); profile = newProfile(cleanName(msg.name) || randomName()); }
+        // one live session per identity: a second tab takes over, and the first is told so
+        for (const o of this.sessions.values()) {
+          if (o === s || !token || o.token !== token) continue;
+          profile = o.profile || profile;
+          if (o.room) this.leaveRoom(o);
+          o.profile = null; o.token = '';
+          o.conn.send({ t: 'err', code: 'replaced', msg: 'Vindheim was opened in another tab. Reload this one to play here.' });
+          o.conn.send({ t: 'left' });
+        }
+        if (!profile) { token = this.store.newToken(); profile = newProfile(cleanName(msg.name) || randomName()); s.fresh = true; }
         s.token = token; s.profile = profile;
         this.persist(s);
         conn.send({ t: 'welcome', v: PROTOCOL_VERSION, token, profile, now: Date.now() / 1000 });
@@ -265,6 +290,7 @@ export class Lobby {
       }
       case 'join': {
         if (!s.profile) return;
+        if (this.ticks - s.lastJoin < TICK_RATE * 0.75) { conn.send({ t: 'err', code: 'rate', msg: 'One moment…' }); return; }
         if (s.room) this.leaveRoom(s);
         let room: Room | undefined;
         if (msg.mode === 'join') {
@@ -272,6 +298,7 @@ export class Lobby {
           if (!room) { conn.send({ t: 'err', code: 'room-not-found', msg: 'No room with that code. Check it and try again.' }); return; }
           if (room.sessions.size >= ROOM_MAX_HUMANS) { conn.send({ t: 'err', code: 'room-full', msg: 'That room is full.' }); return; }
         } else if (msg.mode === 'create') {
+          if (this.rooms.size >= MAX_ROOMS) { conn.send({ t: 'err', code: 'room-full', msg: 'The server is full. Try again in a moment.' }); return; }
           room = new Room(this.newCode(), true, msg.bots !== false, this);
           this.rooms.set(room.code, room);
         } else {
@@ -282,6 +309,7 @@ export class Lobby {
           }
           if (!room) { room = new Room(this.newCode(), false, true, this); this.rooms.set(room.code, room); }
         }
+        s.lastJoin = this.ticks; // only successful joins count against the limit
         room.join(s);
         break;
       }
@@ -306,7 +334,7 @@ export class Lobby {
       }
       case 'cmd': this.command(s, msg.c, msg.v); break;
       case 'ping': {
-        if (typeof msg.rtt === 'number' && isFinite(msg.rtt)) s.ping = Math.max(0, Math.min(999, msg.rtt));
+        if (typeof msg.rtt === 'number' && isFinite(msg.rtt)) s.ping = Math.max(0, Math.min(500, msg.rtt));
         conn.send({ t: 'pong', c: Number(msg.c) || 0, now: Date.now() / 1000 });
         break;
       }
@@ -322,7 +350,7 @@ export class Lobby {
       case 'name': {
         const name = cleanName(v);
         if (!name) return;
-        p.name = name; s.profileDirty = true;
+        p.name = name; s.profileDirty = true; s.fresh = false;
         const f = room?.fighter(s);
         if (f && room) { f.name = name; room.game.rosterDirty = true; }
         break;
@@ -365,7 +393,15 @@ export class Lobby {
   /** Advance every room by one simulation tick. Call at TICK_RATE. */
   tick(): void {
     this.ticks++;
-    for (const room of this.rooms.values()) room.tick();
+    for (const room of this.rooms.values()) {
+      if (room.sessions.size === 0) {
+        // nobody home: do not simulate; close the room after a short grace period
+        if (++room.emptyFor > TICK_RATE * 12) this.rooms.delete(room.code);
+        continue;
+      }
+      // one misbehaving room must never take the others (or the lobby's own bookkeeping) down with it
+      try { room.tick(); } catch (err) { console.error('[room ' + room.code + '] tick failed', err); }
+    }
     if (this.ticks % TICK_RATE === 0) {
       for (const s of this.sessions.values()) {
         s.msgCount = 0;

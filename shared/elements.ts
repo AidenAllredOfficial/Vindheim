@@ -270,7 +270,7 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
         ai: { use: 'trap', min: 0, max: 16 },
       },
       {
-        key: 'glacierglide', name: 'Glacier Glide', slot: 4, cooldown: 6, windup: 0, active: 1.5, recovery: 0.05, moveMul: 0, air: false, anim: 'glide',
+        key: 'glacierglide', name: 'Glacier Glide', slot: 4, cooldown: 6, windup: 0, active: 0, recovery: 0.06, moveMul: 1, air: false, anim: 'glide',
         desc: 'Surf a ribbon of ice at great speed, steering with your aim. The trail Chills foes. Jump to leap off early.',
         tip: 'Circle a foe to wrap them in a chilling trail.',
         fx: { t: 'glide', time: 1.5, speed: 15.5, turn: 2.6, trail: 'icetrail' },
@@ -408,7 +408,7 @@ export const ELEMENTS: Record<ElementId, ElementDef> = {
         ai: { use: 'push', min: 2, max: 13 },
       },
       {
-        key: 'zephyrsoar', name: 'Zephyr Soar', slot: 4, cooldown: 6.5, windup: 0, active: 2.6, recovery: 0, moveMul: 1, air: true, anim: 'soar',
+        key: 'zephyrsoar', name: 'Zephyr Soar', slot: 4, cooldown: 6.5, windup: 0, active: 0, recovery: 0.06, moveMul: 1, air: true, anim: 'soar',
         desc: 'Burst upward on a column of wind, then glide. Works in mid-air — even over the abyss.',
         tip: 'You can follow a falling foe off the edge, finish them, and still come home.',
         fx: { t: 'soar', up: 13.5, time: 2.6, gravityMul: 0.2 },

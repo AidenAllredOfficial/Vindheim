@@ -2,6 +2,7 @@
 // fighter state used in snapshots.
 
 import type { EntityState, GameEvent, MatchInfo, MatchResults, PlayerState, Profile, RoomInfo, RosterEntry } from '../types';
+import { STATE_FIELDS } from '../sim/player';
 
 export const PROTOCOL_VERSION = 1;
 
@@ -26,7 +27,7 @@ export type ServerMsg =
   | { t: 'roster'; roster: RosterEntry[]; room: RoomInfo }
   | { t: 'match'; match: MatchInfo; results: MatchResults | null }
   | { t: 'pong'; c: number; now: number }
-  | { t: 'err'; code: 'version' | 'room-not-found' | 'room-full' | 'bad-request' | 'rate'; msg: string };
+  | { t: 'err'; code: 'version' | 'room-not-found' | 'room-full' | 'bad-request' | 'rate' | 'replaced'; msg: string };
 
 // ---------------------------------------------------------------- fighter encodings
 const q2 = (v: number) => Math.round(v * 100) / 100;
@@ -52,18 +53,16 @@ export function encodeRemote(s: PlayerState): number[] {
     s.act, q2(s.actT), s.mv, playerFlags(s), q2(s.down), q2(s.stun), s.chill];
 }
 
-const NUM_FIELDS = [
-  'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'face', 'hp', 'el', 'act', 'actT', 'actYaw', 'actPitch', 'actN',
-  'stun', 'down', 'inv', 'sinceJump', 'coyote', 'pb', 'mv', 'mvT', 'mvX', 'mvY', 'mvZ',
-  'burn', 'chill', 'chillT', 'freeze', 'freezeImm', 'shock', 'root', 'slow', 'slowMul', 'bubble', 'stealth', 'haste', 'hasteMul',
-  'buf', 'bufT', 'jbuf',
-] as const;
+const NUM_FIELDS = STATE_FIELDS;
 
-/** Full state of a fighter for its owner (prediction needs every field). */
+/**
+ * Full state of a fighter for its owner (prediction needs every field). The caller quantises the
+ * state first (quantizePlayer) so what is sent is exactly what the server goes on simulating.
+ */
 export function encodeSelf(s: PlayerState): number[] {
   const out: number[] = new Array(6 + NUM_FIELDS.length);
   out[0] = (s.onGround ? 1 : 0) | (s.ice ? 2 : 0) | (s.alive ? 4 : 0) | (s.hall ? 8 : 0) | (s.launched ? 16 : 0) | (s.airUsed ? 32 : 0);
-  for (let i = 0; i < 5; i++) out[1 + i] = q3(s.cd[i]);
+  for (let i = 0; i < 5; i++) out[1 + i] = q4(s.cd[i]);
   for (let i = 0; i < NUM_FIELDS.length; i++) out[6 + i] = q4((s as any)[NUM_FIELDS[i]]);
   return out;
 }

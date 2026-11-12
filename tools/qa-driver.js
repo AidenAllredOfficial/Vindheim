@@ -1,5 +1,4 @@
-// QA driver injected into the page by tools/qa.sh: seeds an offline profile and plays the game by
-// writing to the input manager (window.__vindheim is the running App).
+/* QA driver injected into the page by tools/qa.sh: seeds an offline profile and plays the game by writing to the input manager (window.__vindheim is the running App). Keep this file free of line comments: it is flattened to one line before injection. */
 window.QA = {
   seed(equipped, n, glory) {
     const els = ['ember','frost','storm','stone','gale','tide','umbra','dawn'];
